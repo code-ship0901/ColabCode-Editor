@@ -7,8 +7,18 @@ import { MonacoBinding } from "y-monaco";
 function App() {
   const [activeRoom, setActiveRoom] = useState(null);
   const [roomId, setRoomId] = useState("");
+  const [userName, setUserName] = useState("");
+  const [activeUsers, setActiveUsers] = useState([]);
   const [output, setOutput] = useState("");
   const [editorReady, setEditorReady] = useState(false); // New state to trigger sync
+
+  // Generate a random stable color for the user's cursor once
+  const [userColor] = useState(() => {
+    // Distinct, accessible colors
+    const colors = ["#ff3333", "#00d084", "#0693e3", "#9b51e0", "#fcb900"];
+    return colors[Math.floor(Math.random() * colors.length)];
+  });
+
   
   const docRef = useRef(new Y.Doc());
   const editorRef = useRef(null);
@@ -30,20 +40,43 @@ function App() {
       signaling: ["wss://signaling.yjs.dev"], // Re-added signaling servers for stability
     });
     
+    const awareness = providerRef.current.awareness;
+
+    // Set local awareness state
+    awareness.setLocalStateField("user", {
+      name: userName || "Anonymous",
+      color: userColor,
+    });
+
+    // Listen to changes to populate active users for the navbar
+    const updateUsers = () => {
+      const states = Array.from(awareness.getStates().entries());
+      const users = states.map(([clientId, state]) => {
+        if (state.user) {
+          return { clientId, ...state.user };
+        }
+        return null;
+      }).filter(Boolean);
+      setActiveUsers(users);
+    };
+
+    awareness.on("change", updateUsers);
+    
     // 2. Bind Monaco to Yjs Shared Text
     const type = docRef.current.getText("monaco");
     bindingRef.current = new MonacoBinding(
       type,
       editorRef.current.getModel(),
       new Set([editorRef.current]),
-      providerRef.current.awareness
+      awareness
     );
 
     return () => {
+      awareness.off("change", updateUsers);
       providerRef.current?.destroy();
       bindingRef.current?.destroy();
     };
-  }, [activeRoom, editorReady]); // Runs when room is joined or editor loads
+  }, [activeRoom, editorReady, userName]); // Runs when room is joined or editor loads
 
   const handleEditorDidMount = (editor) => {
     editorRef.current = editor;
@@ -71,23 +104,118 @@ function App() {
 
   return (
     <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: "#1e1e1e", color: "white" }}>
+      {/* Dynamic CSS for Monaco Cursors */}
+      <style>
+        {activeUsers.map(u => `
+          .yRemoteSelection-${u.clientId} {
+            background-color: transparent !important; /* Disabled selection highlighting as requested */
+          }
+          .yRemoteSelectionHead-${u.clientId} {
+            position: absolute;
+            border-left: 2px solid ${u.color};
+            box-sizing: border-box;
+            display: inline-block;
+            height: 100%;
+          }
+          .yRemoteSelectionHead-${u.clientId}::after {
+            position: absolute;
+            content: '${u.name}';
+            border: 1px solid ${u.color};
+            border-bottom: 0px;
+            left: -2px;
+            top: -16px;
+            font-size: 11px;
+            font-family: 'Inter', sans-serif;
+            background-color: ${u.color};
+            color: #fff;
+            font-weight: 600;
+            padding: 0px 4px;
+            border-radius: 4px;
+            border-bottom-left-radius: 0;
+            white-space: nowrap;
+            pointer-events: none;
+            z-index: 10;
+          }
+        `).join('\n')}
+      </style>
+
       {/* Navbar */}
-      <div style={{ padding: "10px", background: "#252526", display: "flex", justifyContent: "space-between", borderBottom: "1px solid #333" }}>
+      <div style={{ padding: "10px 20px", background: "#1e1e1e", borderBottom: "1px solid #333", display: "flex", justifyContent: "space-between", alignItems: "center", boxShadow: "0 2px 10px rgba(0,0,0,0.2)", zIndex: 10 }}>
         {!activeRoom ? (
-          <div>
+          <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+            <h2 style={{ margin: "0 20px 0 0", fontSize: "1.2rem", fontWeight: "600", color: "#e0e0e0" }}>ColabCode</h2>
+            <input 
+              value={userName} 
+              onChange={(e) => setUserName(e.target.value)} 
+              placeholder="Your Name" 
+              style={{ padding: "8px 12px", borderRadius: "6px", border: "1px solid #444", background: "#252526", color: "white", outline: "none", fontSize: "14px", transition: "border 0.2s" }} 
+              onFocus={(e) => e.target.style.borderColor = "#007acc"}
+              onBlur={(e) => e.target.style.borderColor = "#444"}
+            />
             <input 
               value={roomId} 
               onChange={(e) => setRoomId(e.target.value)} 
               placeholder="Enter Room ID" 
-              style={{ padding: "6px", borderRadius: "4px", border: "1px solid #444", background: "#333", color: "white" }} 
+              style={{ padding: "8px 12px", borderRadius: "6px", border: "1px solid #444", background: "#252526", color: "white", outline: "none", fontSize: "14px", transition: "border 0.2s" }} 
+              onFocus={(e) => e.target.style.borderColor = "#007acc"}
+              onBlur={(e) => e.target.style.borderColor = "#444"}
             />
-            <button onClick={() => setActiveRoom(roomId)} style={{ marginLeft: "10px", padding: "6px 12px", cursor: "pointer", background: "#007acc", color: "white", border: "none", borderRadius: "4px" }}>Join Room</button>
+            <button 
+              onClick={() => { 
+                if(roomId && userName) setActiveRoom(roomId); 
+                else alert("Please enter both your Name and a Room ID to join."); 
+              }} 
+              style={{ padding: "8px 16px", cursor: "pointer", background: "#007acc", color: "white", border: "none", borderRadius: "6px", fontWeight: "500", transition: "background 0.2s" }}
+              onMouseOver={(e) => e.target.style.background = "#005f9e"}
+              onMouseOut={(e) => e.target.style.background = "#007acc"}
+            >
+              Join Room
+            </button>
           </div>
         ) : (
-          <>
-            <span>Room: <b>{activeRoom}</b></span>
-            <button onClick={runCode} style={{ background: "#4caf50", color: "white", border: "none", padding: "6px 20px", cursor: "pointer", borderRadius: "4px", fontWeight: "bold" }}>▶ Run Code</button>
-          </>
+          <div style={{ display: "flex", alignItems: "center", width: "100%", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "20px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", background: "#252526", padding: "6px 12px", borderRadius: "6px", border: "1px solid #333" }}>
+                <span style={{ fontSize: "12px", color: "#888", textTransform: "uppercase", letterSpacing: "1px" }}>Room</span>
+                <span style={{ fontWeight: "600", color: "#e0e0e0" }}>{activeRoom}</span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", background: "#252526", padding: "4px 12px", borderRadius: "20px", border: "1px solid #333" }}>
+                <span style={{ fontSize: "12px", color: "#888", marginRight: "4px" }}>Active Users:</span>
+                <div style={{ display: "flex" }}>
+                  {activeUsers.map((u, i) => (
+                    <div 
+                      key={u.clientId} 
+                      title={u.name} 
+                      style={{ 
+                        width: "30px", height: "30px", borderRadius: "50%", background: u.color, 
+                        display: "flex", alignItems: "center", justifyContent: "center", 
+                        fontWeight: "bold", border: "2px solid #1e1e1e", fontSize: "14px",
+                        marginLeft: i > 0 ? "-10px" : "0", zIndex: activeUsers.length - i,
+                        boxShadow: "0 2px 4px rgba(0,0,0,0.2)", cursor: "default"
+                      }}
+                    >
+                      {u.name.charAt(0).toUpperCase()}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <button 
+              onClick={runCode} 
+              style={{ 
+                background: "#4caf50", color: "white", border: "none", padding: "8px 24px", 
+                cursor: "pointer", borderRadius: "6px", fontWeight: "600", fontSize: "14px",
+                display: "flex", alignItems: "center", gap: "8px", transition: "background 0.2s"
+              }}
+              onMouseOver={(e) => e.target.style.background = "#388e3c"}
+              onMouseOut={(e) => e.target.style.background = "#4caf50"}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M8 5v14l11-7z"/>
+              </svg>
+              Run Code
+            </button>
+          </div>
         )}
       </div>
 
