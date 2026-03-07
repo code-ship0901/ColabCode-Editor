@@ -71,8 +71,7 @@ function EditorPage({ userName, roomId }) {
   };
 
   const copyLink = () => {
-    const url = `${window.location.origin}/?room=${roomId}`;
-    navigator.clipboard.writeText(url);
+    navigator.clipboard.writeText(`${window.location.origin}/?room=${roomId}`);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -96,7 +95,6 @@ function EditorPage({ userName, roomId }) {
 
   return (
     <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: "#1e1e1e", color: "white" }}>
-      {/* Dynamic CSS for Monaco Cursors + Dropdown */}
       <style>{`
         ${activeUsers.map(u => `
           .yRemoteSelection-${u.clientId} { background-color: transparent !important; }
@@ -129,7 +127,7 @@ function EditorPage({ userName, roomId }) {
         .users-container { position: relative; cursor: pointer; }
         .users-dropdown {
           position: absolute; top: 100%; right: 0; margin-top: 10px;
-          background: #252526; border: 1px solid #444; border-radius: 8px;
+          background: #252526; border: 1px solid #3a3a3a; border-radius: 8px;
           padding: 8px 0; min-width: 160px;
           box-shadow: 0 4px 12px rgba(0,0,0,0.5);
           opacity: 0; visibility: hidden;
@@ -140,31 +138,28 @@ function EditorPage({ userName, roomId }) {
           opacity: 1; visibility: visible; transform: translateY(0);
         }
         .user-row { display: flex; align-items: center; gap: 10px; padding: 6px 16px; }
-        .user-row:hover { background: #333; }
+        .user-row:hover { background: #2a2a2a; }
       `}</style>
 
       {/* Navbar */}
       <div style={{
         padding: "10px 20px", background: "#161616", borderBottom: "1px solid #2a2a2a",
         display: "flex", justifyContent: "space-between", alignItems: "center",
-        boxShadow: "0 2px 10px rgba(0,0,0,0.4)", zIndex: 10
+        boxShadow: "0 1px 4px rgba(0,0,0,0.4)", zIndex: 10
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: "20px" }}>
-          {/* Logo */}
-          <span style={{ fontWeight: "800", fontSize: "1.1rem", letterSpacing: "-0.5px",
+          <span style={{ fontWeight: "800", fontSize: "1rem", letterSpacing: "-0.3px",
             background: "linear-gradient(135deg, #fff, #a0c4ff)",
             WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
             ⌨️ ColabCode
           </span>
 
-          {/* Room badge */}
           <div style={{ display: "flex", alignItems: "center", gap: "8px", background: "#252526",
             padding: "5px 12px", borderRadius: "6px", border: "1px solid #333" }}>
-            <span style={{ fontSize: "11px", color: "#666", textTransform: "uppercase", letterSpacing: "1px" }}>Room</span>
-            <span style={{ fontWeight: "700", color: "#e0e0e0", letterSpacing: "1px" }}>{roomId}</span>
+            <span style={{ fontSize: "11px", color: "#555", textTransform: "uppercase", letterSpacing: "1px" }}>Room</span>
+            <span style={{ fontWeight: "700", color: "#e0e0e0", letterSpacing: "1px", fontFamily: "Consolas, monospace" }}>{roomId}</span>
           </div>
 
-          {/* Active users chip */}
           <div className="users-container" style={{ display: "flex", alignItems: "center", gap: "8px",
             background: "#252526", padding: "4px 12px", borderRadius: "20px", border: "1px solid #333" }}>
             <div style={{ display: "flex" }}>
@@ -174,51 +169,49 @@ function EditorPage({ userName, roomId }) {
                   display: "flex", alignItems: "center", justifyContent: "center",
                   fontWeight: "700", border: "2px solid #161616", fontSize: "13px",
                   marginLeft: i > 0 ? "-8px" : "0", zIndex: activeUsers.length - i,
-                  boxShadow: "0 2px 4px rgba(0,0,0,0.3)"
                 }}>
                   {u.name.charAt(0).toUpperCase()}
                 </div>
               ))}
             </div>
-            <span style={{ fontSize: "12px", color: "#666" }}>{activeUsers.length} online</span>
+            <span style={{ fontSize: "12px", color: "#555" }}>{activeUsers.length} online</span>
 
-            {/* Dropdown */}
             <div className="users-dropdown">
-              <div style={{ padding: "0 16px 8px", fontSize: "11px", color: "#666",
+              <div style={{ padding: "0 16px 8px", fontSize: "11px", color: "#555",
                 borderBottom: "1px solid #333", marginBottom: "4px", letterSpacing: "0.5px" }}>
                 CONNECTED ({activeUsers.length})
               </div>
               {activeUsers.map(u => (
                 <div key={"dd-" + u.clientId} className="user-row">
                   <div style={{ width: "10px", height: "10px", borderRadius: "50%", background: u.color }} />
-                  <span style={{ fontSize: "14px", color: "#e0e0e0" }}>{u.name}</span>
+                  <span style={{ fontSize: "13px", color: "#e0e0e0" }}>{u.name}</span>
                 </div>
               ))}
             </div>
           </div>
         </div>
 
-        {/* Right buttons */}
-        <div style={{ display: "flex", gap: "10px" }}>
+        <div style={{ display: "flex", gap: "8px" }}>
           <button onClick={copyLink} style={{
-            background: copied ? "#1a3a2a" : "#252526", color: copied ? "#00d084" : "#aaa",
-            border: `1px solid ${copied ? "#00d08440" : "#333"}`, padding: "7px 14px",
-            cursor: "pointer", borderRadius: "6px", fontWeight: "600", fontSize: "13px",
-            display: "flex", alignItems: "center", gap: "6px", transition: "all 0.2s"
+            background: "transparent",
+            color: copied ? "#00d084" : "#666",
+            border: `1px solid ${copied ? "#00d08440" : "#333"}`,
+            padding: "6px 14px", cursor: "pointer", borderRadius: "6px",
+            fontWeight: "600", fontSize: "13px", fontFamily: "Inter, sans-serif",
+            transition: "all 0.15s"
           }}>
-            {copied ? "✓ Copied!" : "📋 Copy Link"}
+            {copied ? "✓ Copied" : "Copy Link"}
           </button>
           <button onClick={runCode} style={{
-            background: "linear-gradient(135deg, #4caf50, #388e3c)",
-            color: "white", border: "none", padding: "7px 20px",
-            cursor: "pointer", borderRadius: "6px", fontWeight: "700", fontSize: "13px",
-            display: "flex", alignItems: "center", gap: "6px", transition: "opacity 0.2s",
-            boxShadow: "0 2px 8px rgba(76,175,80,0.3)"
+            background: "#0693e3", color: "white", border: "none", padding: "6px 18px",
+            cursor: "pointer", borderRadius: "6px", fontWeight: "600", fontSize: "13px",
+            fontFamily: "Inter, sans-serif", display: "flex", alignItems: "center", gap: "6px",
+            transition: "background 0.15s"
           }}
-            onMouseOver={e => e.currentTarget.style.opacity = "0.85"}
-            onMouseOut={e => e.currentTarget.style.opacity = "1"}
+            onMouseOver={e => e.currentTarget.style.background = "#057ab8"}
+            onMouseOut={e => e.currentTarget.style.background = "#0693e3"}
           >
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
             Run Code
           </button>
         </div>
@@ -236,11 +229,11 @@ function EditorPage({ userName, roomId }) {
           />
         </div>
         <div style={{ width: "360px", background: "#111", display: "flex", flexDirection: "column" }}>
-          <div style={{ padding: "12px 16px", borderBottom: "1px solid #222", fontSize: "11px",
-            color: "#555", letterSpacing: "1.5px", fontWeight: "600" }}>OUTPUT</div>
-          <pre style={{ flex: 1, color: "#d4d4d4", whiteSpace: "pre-wrap", fontFamily: "Consolas, monospace",
-            fontSize: "14px", padding: "16px", margin: 0, overflowY: "auto" }}>
-            {output || <span style={{ color: "#444" }}>Run your code to see output here...</span>}
+          <div style={{ padding: "10px 16px", borderBottom: "1px solid #1a1a1a", fontSize: "11px",
+            color: "#444", letterSpacing: "1.5px", fontWeight: "600", fontFamily: "Inter, sans-serif" }}>OUTPUT</div>
+          <pre style={{ flex: 1, color: "#d4d4d4", whiteSpace: "pre-wrap",
+            fontFamily: "Consolas, monospace", fontSize: "14px", padding: "16px", margin: 0, overflowY: "auto" }}>
+            {output || <span style={{ color: "#3a3a3a" }}>Run your code to see output here...</span>}
           </pre>
         </div>
       </div>
@@ -248,12 +241,8 @@ function EditorPage({ userName, roomId }) {
   );
 }
 
-/* ─── App: Router ───────────────────────────────── */
 export default function App() {
-  const [session, setSession] = useState(null); // { userName, roomId }
-
-  // If URL already contains ?room=, prefill the home page
-  // (HomePage handles this itself via URLSearchParams)
+  const [session, setSession] = useState(null);
 
   if (!session) {
     return <HomePage onJoin={({ userName, roomId }) => {
