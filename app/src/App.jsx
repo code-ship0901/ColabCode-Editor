@@ -3,74 +3,53 @@ import Editor from "@monaco-editor/react";
 import * as Y from "yjs";
 import { WebrtcProvider } from "y-webrtc";
 import { MonacoBinding } from "y-monaco";
+import HomePage from "./HomePage";
 
-function App() {
-  const [activeRoom, setActiveRoom] = useState(null);
-  const [roomId, setRoomId] = useState(() => new URLSearchParams(window.location.search).get("room") || "");
-  const [userName, setUserName] = useState("");
+function EditorPage({ userName, roomId }) {
   const [activeUsers, setActiveUsers] = useState([]);
   const [output, setOutput] = useState("");
-  const [editorReady, setEditorReady] = useState(false); // New state to trigger sync
+  const [editorReady, setEditorReady] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  const copyLink = () => {
-    const url = window.location.origin + window.location.pathname + "?room=" + activeRoom;
-    navigator.clipboard.writeText(url);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  // Generate a random stable color for the user's cursor once
   const [userColor] = useState(() => {
-    // Distinct, accessible colors
     const colors = ["#ff3333", "#00d084", "#0693e3", "#9b51e0", "#fcb900"];
     return colors[Math.floor(Math.random() * colors.length)];
   });
 
-  
   const docRef = useRef(new Y.Doc());
   const editorRef = useRef(null);
   const providerRef = useRef(null);
   const bindingRef = useRef(null);
 
-  // Sync Logic: Connects users and binds the editor
   useEffect(() => {
-    // Only bind if both the room is joined AND the editor has loaded
-    if (!activeRoom || !editorReady || !editorRef.current) return;
+    if (!roomId || !editorReady || !editorRef.current) return;
 
-    // Cleanup existing connections if any
     providerRef.current?.destroy();
     bindingRef.current?.destroy();
 
-    // 1. Initialize WebRTC Provider
-    const roomName = `colab-editor-${activeRoom}`; // Re-added the prefix to prevent public room collisions
+    const roomName = `colab-editor-${roomId}`;
     providerRef.current = new WebrtcProvider(roomName, docRef.current, {
-      signaling: ["wss://signaling.yjs.dev"], // Re-added signaling servers for stability
+      signaling: ["wss://signaling.yjs.dev"],
     });
-    
+
     const awareness = providerRef.current.awareness;
 
-    // Set local awareness state
     awareness.setLocalStateField("user", {
       name: userName || "Anonymous",
       color: userColor,
     });
 
-    // Listen to changes to populate active users for the navbar
     const updateUsers = () => {
       const states = Array.from(awareness.getStates().entries());
       const users = states.map(([clientId, state]) => {
-        if (state.user) {
-          return { clientId, ...state.user };
-        }
+        if (state.user) return { clientId, ...state.user };
         return null;
       }).filter(Boolean);
       setActiveUsers(users);
     };
 
     awareness.on("change", updateUsers);
-    
-    // 2. Bind Monaco to Yjs Shared Text
+
     const type = docRef.current.getText("monaco");
     bindingRef.current = new MonacoBinding(
       type,
@@ -84,40 +63,41 @@ function App() {
       providerRef.current?.destroy();
       bindingRef.current?.destroy();
     };
-  }, [activeRoom, editorReady, userName]); // Runs when room is joined or editor loads
+  }, [roomId, editorReady, userName]);
 
   const handleEditorDidMount = (editor) => {
     editorRef.current = editor;
     setEditorReady(true);
   };
 
+  const copyLink = () => {
+    navigator.clipboard.writeText(`${window.location.origin}/?room=${roomId}`);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   const runCode = async () => {
     if (!editorRef.current) return;
     setOutput("Running...");
-
     try {
       const res = await fetch("http://localhost:5000/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code: editorRef.current.getValue() }),
       });
-
       const data = await res.json();
       setOutput(data.output);
     } catch (err) {
       console.error(err);
-      setOutput(`Error: ${err.message || 'Backend is offline. Check terminal.'}`);
+      setOutput(`Error: ${err.message || "Backend is offline. Check terminal."}`);
     }
   };
 
   return (
     <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: "#1e1e1e", color: "white" }}>
-      {/* Dynamic CSS for Monaco Cursors */}
       <style>{`
         ${activeUsers.map(u => `
-          .yRemoteSelection-${u.clientId} {
-            background-color: transparent !important;
-          }
+          .yRemoteSelection-${u.clientId} { background-color: transparent !important; }
           .yRemoteSelectionHead-${u.clientId} {
             position: absolute;
             border-left: 2px solid ${u.color};
@@ -130,13 +110,11 @@ function App() {
             content: '${u.name}';
             border: 1px solid ${u.color};
             border-bottom: 0px;
-            left: -2px;
-            top: -16px;
+            left: -2px; top: -16px;
             font-size: 11px;
             font-family: 'Inter', sans-serif;
             background-color: ${u.color};
-            color: #fff;
-            font-weight: 600;
+            color: #fff; font-weight: 600;
             padding: 0px 4px;
             border-radius: 4px;
             border-bottom-left-radius: 0;
@@ -146,175 +124,132 @@ function App() {
           }
         `).join("")}
 
-        .users-container {
-          position: relative;
-          cursor: pointer;
-        }
+        .users-container { position: relative; cursor: pointer; }
         .users-dropdown {
-          position: absolute;
-          top: 100%;
-          right: 0;
-          margin-top: 10px;
-          background: #252526;
-          border: 1px solid #444;
-          border-radius: 8px;
-          padding: 8px 0;
-          min-width: 150px;
+          position: absolute; top: 100%; right: 0; margin-top: 10px;
+          background: #252526; border: 1px solid #3a3a3a; border-radius: 8px;
+          padding: 8px 0; min-width: 160px;
           box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-          opacity: 0;
-          visibility: hidden;
+          opacity: 0; visibility: hidden;
           transform: translateY(-10px);
-          transition: all 0.2s ease;
-          z-index: 20;
+          transition: all 0.2s ease; z-index: 20;
         }
         .users-container:hover .users-dropdown {
-          opacity: 1;
-          visibility: visible;
-          transform: translateY(0);
+          opacity: 1; visibility: visible; transform: translateY(0);
         }
-        .user-row {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          padding: 6px 16px;
-        }
-        .user-row:hover {
-          background: #333;
-        }
+        .user-row { display: flex; align-items: center; gap: 10px; padding: 6px 16px; }
+        .user-row:hover { background: #2a2a2a; }
       `}</style>
 
       {/* Navbar */}
-      <div style={{ padding: "10px 20px", background: "#1e1e1e", borderBottom: "1px solid #333", display: "flex", justifyContent: "space-between", alignItems: "center", boxShadow: "0 2px 10px rgba(0,0,0,0.2)", zIndex: 10 }}>
-        {!activeRoom ? (
-          <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-            <h2 style={{ margin: "0 20px 0 0", fontSize: "1.2rem", fontWeight: "600", color: "#e0e0e0" }}>ColabCode</h2>
-            <input 
-              value={userName} 
-              onChange={(e) => setUserName(e.target.value)} 
-              placeholder="Your Name" 
-              style={{ padding: "8px 12px", borderRadius: "6px", border: "1px solid #444", background: "#252526", color: "white", outline: "none", fontSize: "14px", transition: "border 0.2s" }} 
-              onFocus={(e) => e.target.style.borderColor = "#007acc"}
-              onBlur={(e) => e.target.style.borderColor = "#444"}
-            />
-            <input 
-              value={roomId} 
-              onChange={(e) => setRoomId(e.target.value)} 
-              placeholder="Enter Room ID" 
-              style={{ padding: "8px 12px", borderRadius: "6px", border: "1px solid #444", background: "#252526", color: "white", outline: "none", fontSize: "14px", transition: "border 0.2s" }} 
-              onFocus={(e) => e.target.style.borderColor = "#007acc"}
-              onBlur={(e) => e.target.style.borderColor = "#444"}
-            />
-            <button 
-              onClick={() => { 
-                if(roomId && userName) {
-                  setActiveRoom(roomId);
-                  window.history.pushState({}, "", "?room=" + roomId);
-                } else {
-                  alert("Please enter both your Name and a Room ID to join."); 
-                }
-              }} 
-              style={{ padding: "8px 16px", cursor: "pointer", background: "#007acc", color: "white", border: "none", borderRadius: "6px", fontWeight: "500", transition: "background 0.2s" }}
-              onMouseOver={(e) => e.target.style.background = "#005f9e"}
-              onMouseOut={(e) => e.target.style.background = "#007acc"}
-            >
-              Join Room
-            </button>
-          </div>
-        ) : (
-          <div style={{ display: "flex", alignItems: "center", width: "100%", justifyContent: "space-between" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "20px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px", background: "#252526", padding: "6px 12px", borderRadius: "6px", border: "1px solid #333" }}>
-                <span style={{ fontSize: "12px", color: "#888", textTransform: "uppercase", letterSpacing: "1px" }}>Room</span>
-                <span style={{ fontWeight: "600", color: "#e0e0e0" }}>{activeRoom}</span>
-              </div>
-              <div className="users-container" style={{ display: "flex", alignItems: "center", gap: "8px", background: "#252526", padding: "4px 12px", borderRadius: "20px", border: "1px solid #333" }}>
-                <span style={{ fontSize: "12px", color: "#888", marginRight: "4px" }}>Active Users:</span>
-                <div style={{ display: "flex" }}>
-                  {activeUsers.map((u, i) => (
-                    <div 
-                      key={u.clientId} 
-                      title={u.name} 
-                      style={{ 
-                        width: "30px", height: "30px", borderRadius: "50%", background: u.color, 
-                        display: "flex", alignItems: "center", justifyContent: "center", 
-                        fontWeight: "bold", border: "2px solid #1e1e1e", fontSize: "14px",
-                        marginLeft: i > 0 ? "-10px" : "0", zIndex: activeUsers.length - i,
-                        boxShadow: "0 2px 4px rgba(0,0,0,0.2)"
-                      }}
-                    >
-                      {u.name.charAt(0).toUpperCase()}
-                    </div>
-                  ))}
-                </div>
+      <div style={{
+        padding: "10px 20px", background: "#161616", borderBottom: "1px solid #2a2a2a",
+        display: "flex", justifyContent: "space-between", alignItems: "center",
+        boxShadow: "0 1px 4px rgba(0,0,0,0.4)", zIndex: 10
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "20px" }}>
+          <span style={{ fontWeight: "800", fontSize: "1rem", letterSpacing: "-0.3px",
+            background: "linear-gradient(135deg, #fff, #a0c4ff)",
+            WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
+            ⌨️ ColabCode
+          </span>
 
-                {/* Dropdown Hover Menu */}
-                <div className="users-dropdown">
-                  <div style={{ padding: "0 16px 8px 16px", fontSize: "12px", color: "#888", borderBottom: "1px solid #444", marginBottom: "4px" }}>
-                    Connected ({activeUsers.length})
-                  </div>
-                  {activeUsers.map(u => (
-                    <div key={'dropdown-'+u.clientId} className="user-row">
-                      <div style={{ width: "12px", height: "12px", borderRadius: "50%", background: u.color }}></div>
-                      <span style={{ fontSize: "14px", color: "#e0e0e0" }}>{u.name}</span>
-                    </div>
-                  ))}
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", background: "#252526",
+            padding: "5px 12px", borderRadius: "6px", border: "1px solid #333" }}>
+            <span style={{ fontSize: "11px", color: "#555", textTransform: "uppercase", letterSpacing: "1px" }}>Room</span>
+            <span style={{ fontWeight: "700", color: "#e0e0e0", letterSpacing: "1px", fontFamily: "Consolas, monospace" }}>{roomId}</span>
+          </div>
+
+          <div className="users-container" style={{ display: "flex", alignItems: "center", gap: "8px",
+            background: "#252526", padding: "4px 12px", borderRadius: "20px", border: "1px solid #333" }}>
+            <div style={{ display: "flex" }}>
+              {activeUsers.map((u, i) => (
+                <div key={u.clientId} title={u.name} style={{
+                  width: "28px", height: "28px", borderRadius: "50%", background: u.color,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontWeight: "700", border: "2px solid #161616", fontSize: "13px",
+                  marginLeft: i > 0 ? "-8px" : "0", zIndex: activeUsers.length - i,
+                }}>
+                  {u.name.charAt(0).toUpperCase()}
                 </div>
-              </div>
+              ))}
             </div>
-            <div style={{ display: "flex", gap: "10px" }}>
-              <button 
-                onClick={copyLink} 
-                style={{ 
-                  background: "#2d2d2d", color: "#e0e0e0", border: "1px solid #444", padding: "8px 16px", 
-                  cursor: "pointer", borderRadius: "6px", fontWeight: "600", fontSize: "14px",
-                  display: "flex", alignItems: "center", gap: "8px", transition: "all 0.2s"
-                }}
-                onMouseOver={(e) => { e.target.style.background = "#3d3d3d"; e.target.style.borderColor = "#666"; }}
-                onMouseOut={(e) => { e.target.style.background = "#2d2d2d"; e.target.style.borderColor = "#444"; }}
-              >
-                {copied ? "✅ Copied!" : "📋 Copy Link"}
-              </button>
-              <button 
-                onClick={runCode} 
-                style={{ 
-                  background: "#4caf50", color: "white", border: "none", padding: "8px 24px", 
-                  cursor: "pointer", borderRadius: "6px", fontWeight: "600", fontSize: "14px",
-                  display: "flex", alignItems: "center", gap: "8px", transition: "background 0.2s"
-                }}
-                onMouseOver={(e) => e.target.style.background = "#388e3c"}
-                onMouseOut={(e) => e.target.style.background = "#4caf50"}
-              >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M8 5v14l11-7z"/>
-                </svg>
-                Run Code
-              </button>
+            <span style={{ fontSize: "12px", color: "#555" }}>{activeUsers.length} online</span>
+
+            <div className="users-dropdown">
+              <div style={{ padding: "0 16px 8px", fontSize: "11px", color: "#555",
+                borderBottom: "1px solid #333", marginBottom: "4px", letterSpacing: "0.5px" }}>
+                CONNECTED ({activeUsers.length})
+              </div>
+              {activeUsers.map(u => (
+                <div key={"dd-" + u.clientId} className="user-row">
+                  <div style={{ width: "10px", height: "10px", borderRadius: "50%", background: u.color }} />
+                  <span style={{ fontSize: "13px", color: "#e0e0e0" }}>{u.name}</span>
+                </div>
+              ))}
             </div>
           </div>
-        )}
+        </div>
+
+        <div style={{ display: "flex", gap: "8px" }}>
+          <button onClick={copyLink} style={{
+            background: "transparent",
+            color: copied ? "#00d084" : "#666",
+            border: `1px solid ${copied ? "#00d08440" : "#333"}`,
+            padding: "6px 14px", cursor: "pointer", borderRadius: "6px",
+            fontWeight: "600", fontSize: "13px", fontFamily: "Inter, sans-serif",
+            transition: "all 0.15s"
+          }}>
+            {copied ? "✓ Copied" : "Copy Link"}
+          </button>
+          <button onClick={runCode} style={{
+            background: "#0693e3", color: "white", border: "none", padding: "6px 18px",
+            cursor: "pointer", borderRadius: "6px", fontWeight: "600", fontSize: "13px",
+            fontFamily: "Inter, sans-serif", display: "flex", alignItems: "center", gap: "6px",
+            transition: "background 0.15s"
+          }}
+            onMouseOver={e => e.currentTarget.style.background = "#057ab8"}
+            onMouseOut={e => e.currentTarget.style.background = "#0693e3"}
+          >
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+            Run Code
+          </button>
+        </div>
       </div>
 
-      {/* Main Content */}
+      {/* Editor + Output */}
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
-        <div style={{ flex: 1, borderRight: "1px solid #333" }}>
-          {activeRoom && (
-             <Editor
-              height="100%"
-              theme="vs-dark"
-              language="cpp"
-              onMount={handleEditorDidMount}
-              options={{ fontSize: 16, minimap: { enabled: false }, automaticLayout: true }}
-            />
-          )}
+        <div style={{ flex: 1, borderRight: "1px solid #2a2a2a" }}>
+          <Editor
+            height="100%"
+            theme="vs-dark"
+            language="cpp"
+            onMount={handleEditorDidMount}
+            options={{ fontSize: 15, minimap: { enabled: false }, automaticLayout: true, fontFamily: "'Fira Code', Consolas, monospace", fontLigatures: true }}
+          />
         </div>
-        <div style={{ width: "350px", background: "#111", padding: "15px", overflowY: "auto" }}>
-          <div style={{ color: "#888", fontSize: "12px", marginBottom: "10px", letterSpacing: "1px" }}>OUTPUT</div>
-          <pre style={{ color: "#d4d4d4", whiteSpace: "pre-wrap", fontFamily: "Consolas, monospace", fontSize: "14px" }}>{output || "No output yet..."}</pre>
+        <div style={{ width: "360px", background: "#111", display: "flex", flexDirection: "column" }}>
+          <div style={{ padding: "10px 16px", borderBottom: "1px solid #1a1a1a", fontSize: "11px",
+            color: "#444", letterSpacing: "1.5px", fontWeight: "600", fontFamily: "Inter, sans-serif" }}>OUTPUT</div>
+          <pre style={{ flex: 1, color: "#d4d4d4", whiteSpace: "pre-wrap",
+            fontFamily: "Consolas, monospace", fontSize: "14px", padding: "16px", margin: 0, overflowY: "auto" }}>
+            {output || <span style={{ color: "#3a3a3a" }}>Run your code to see output here...</span>}
+          </pre>
         </div>
       </div>
     </div>
   );
 }
 
-export default App;
+export default function App() {
+  const [session, setSession] = useState(null);
 
+  if (!session) {
+    return <HomePage onJoin={({ userName, roomId }) => {
+      window.history.pushState({}, "", "?room=" + roomId);
+      setSession({ userName, roomId });
+    }} />;
+  }
+
+  return <EditorPage userName={session.userName} roomId={session.roomId} />;
+}
