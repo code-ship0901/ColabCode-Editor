@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 
+const BACKEND_URL = "http://localhost:5000";
+
 export default function FileExplorer({ roomId, onFileSelect }) {
   const [tree, setTree] = useState({ folders: [], files: [] });
   const [expandedFolders, setExpandedFolders] = useState({});
@@ -11,7 +13,7 @@ export default function FileExplorer({ roomId, onFileSelect }) {
   const fetchTree = async () => {
     if (!roomId) return;
     try {
-      const res = await axios.get(`http://localhost:5000/api/tree?roomId=${roomId}`);
+      const res = await axios.get(`${BACKEND_URL}/api/tree?roomId=${roomId}`);
       setTree(res.data);
     } catch (err) {
       console.error(err);
@@ -31,9 +33,9 @@ export default function FileExplorer({ roomId, onFileSelect }) {
     const { type, parentId } = creatingNode;
     try {
       if (type === 'folder') {
-        await axios.post('http://localhost:5000/api/folders', { name: newNodeName, parentId, roomId });
+        await axios.post(`${BACKEND_URL}/api/folders`, { name: newNodeName, parentId, roomId });
       } else {
-        await axios.post('http://localhost:5000/api/files', { name: newNodeName, folderId: parentId, content: '// ' + newNodeName + '\n', roomId });
+        await axios.post(`${BACKEND_URL}/api/files`, { name: newNodeName, folderId: parentId, content: '// ' + newNodeName + '\n', roomId });
       }
       setNewNodeName("");
       setCreatingNode(null);
@@ -49,13 +51,13 @@ export default function FileExplorer({ roomId, onFileSelect }) {
   const handleRename = async (id, type) => {
     const newName = prompt(`Enter new name for this ${type}:`);
     if (!newName) return;
-    await axios.put('http://localhost:5000/api/rename', { id, type, newName });
+    await axios.put(`${BACKEND_URL}/api/rename`, { id, type, newName });
     fetchTree();
   };
 
   const handleDelete = async (id, type) => {
     if (!window.confirm(`Delete this ${type}?`)) return;
-    await axios.delete('http://localhost:5000/api/delete', { data: { id, type } });
+    await axios.delete(`${BACKEND_URL}/api/delete`, { data: { id, type } });
     if (activeFileId === id) setActiveFileId(null);
     fetchTree();
   };
