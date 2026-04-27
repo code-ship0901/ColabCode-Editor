@@ -4,12 +4,16 @@ import * as Y from "yjs";
 import { WebrtcProvider } from "y-webrtc";
 import { MonacoBinding } from "y-monaco";
 import HomePage from "./HomePage";
+import FileExplorer from "./FileExplorer";
+import axios from "axios";
 
 function EditorPage({ userName, roomId }) {
   const [activeUsers, setActiveUsers] = useState([]);
   const [output, setOutput] = useState("");
   const [editorReady, setEditorReady] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [currentFileId, setCurrentFileId] = useState(null);
+  const [fileName, setFileName] = useState("");
 
   const [userColor] = useState(() => {
     const colors = ["#ff3333", "#00d084", "#0693e3", "#9b51e0", "#fcb900"];
@@ -69,6 +73,40 @@ function EditorPage({ userName, roomId }) {
     editorRef.current = editor;
     setEditorReady(true);
   };
+
+  const loadFile = async (id) => {
+    try {
+      const res = await axios.get(`http://localhost:5000/api/files/${id}`);
+      setCurrentFileId(id);
+      setFileName(res.data.name);
+
+      const type = docRef.current.getText("monaco");
+      type.delete(0, type.length);
+      type.insert(0, res.data.content);
+    } catch (err) {
+      console.error("Failed to load file", err);
+    }
+  };
+
+  useEffect(() => {
+    if (!currentFileId) return;
+    const type = docRef.current.getText("monaco");
+    
+    let timer;
+    const observer = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        axios.put(`http://localhost:5000/api/files/${currentFileId}`, { content: type.toString() })
+          .catch(err => console.error("Auto-save failed", err));
+      }, 1000);
+    };
+
+    type.observe(observer);
+    return () => {
+      type.unobserve(observer);
+      clearTimeout(timer);
+    };
+  }, [currentFileId]);
 
   const copyLink = () => {
     navigator.clipboard.writeText(`${window.location.origin}/?room=${roomId}`);
@@ -219,14 +257,22 @@ function EditorPage({ userName, roomId }) {
 
       {/* Editor + Output */}
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
-        <div style={{ flex: 1, borderRight: "1px solid #2a2a2a" }}>
-          <Editor
-            height="100%"
-            theme="vs-dark"
-            language="cpp"
-            onMount={handleEditorDidMount}
-            options={{ fontSize: 15, minimap: { enabled: false }, automaticLayout: true, fontFamily: "'Fira Code', Consolas, monospace", fontLigatures: true }}
-          />
+        <FileExplorer roomId={roomId} onFileSelect={loadFile} />
+        <div style={{ flex: 1, borderRight: "1px solid #2a2a2a", display: "flex", flexDirection: "column" }}>
+          {fileName && (
+            <div style={{ padding: "8px 16px", background: "#1e1e1e", borderBottom: "1px solid #2a2a2a", fontSize: "12px", color: "#9cdcfe", fontFamily: "Consolas, monospace" }}>
+              📄 {fileName}
+            </div>
+          )}
+          <div style={{ flex: 1, position: "relative" }}>
+            <Editor
+              height="100%"
+              theme="vs-dark"
+              language="cpp"
+              onMount={handleEditorDidMount}
+              options={{ fontSize: 15, minimap: { enabled: false }, automaticLayout: true, fontFamily: "'Fira Code', Consolas, monospace", fontLigatures: true }}
+            />
+          </div>
         </div>
         <div style={{ width: "360px", background: "#111", display: "flex", flexDirection: "column" }}>
           <div style={{ padding: "10px 16px", borderBottom: "1px solid #1a1a1a", fontSize: "11px",
