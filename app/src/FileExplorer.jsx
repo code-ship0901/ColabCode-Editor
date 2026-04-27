@@ -3,7 +3,7 @@ import axios from 'axios';
 
 const BACKEND_URL = "http://localhost:5000";
 
-export default function FileExplorer({ roomId, onFileSelect }) {
+export default function FileExplorer({ roomId, onFileSelect, refreshTick }) {
   const [tree, setTree] = useState({ folders: [], files: [] });
   const [expandedFolders, setExpandedFolders] = useState({});
   const [creatingNode, setCreatingNode] = useState(null); // { type: 'file' | 'folder', parentId: string | null }
@@ -22,7 +22,7 @@ export default function FileExplorer({ roomId, onFileSelect }) {
 
   useEffect(() => {
     fetchTree();
-  }, [roomId]);
+  }, [roomId, refreshTick]);
 
   const handleCreateSubmit = async () => {
     if (!newNodeName.trim() || !roomId) {
@@ -35,7 +35,9 @@ export default function FileExplorer({ roomId, onFileSelect }) {
       if (type === 'folder') {
         await axios.post(`${BACKEND_URL}/api/folders`, { name: newNodeName, parentId, roomId });
       } else {
-        await axios.post(`${BACKEND_URL}/api/files`, { name: newNodeName, folderId: parentId, content: '// ' + newNodeName + '\n', roomId });
+        const res = await axios.post(`${BACKEND_URL}/api/files`, { name: newNodeName, folderId: parentId, content: '// ' + newNodeName + '\n', roomId });
+        // Automatically open the new file just created!
+        selectFile(res.data._id);
       }
       setNewNodeName("");
       setCreatingNode(null);
@@ -142,7 +144,10 @@ export default function FileExplorer({ roomId, onFileSelect }) {
               autoFocus
               value={newNodeName}
               onChange={e => setNewNodeName(e.target.value)}
-              onBlur={() => { if(!newNodeName.trim()) setCreatingNode(null); }}
+              onBlur={() => { 
+                if(!newNodeName.trim()) setCreatingNode(null);
+                else handleCreateSubmit();
+              }}
               onKeyDown={e => { 
                 if (e.key === 'Enter') handleCreateSubmit(); 
                 if (e.key === 'Escape') setCreatingNode(null); 

@@ -29,9 +29,8 @@ const fileSchema = new mongoose.Schema({
 });
 
 // Update the updatedAt field before saving
-fileSchema.pre('save', function (next) {
+fileSchema.pre('save', function () {
   this.updatedAt = Date.now();
-  next();
 });
 
 module.exports = mongoose.model('File', fileSchema);
