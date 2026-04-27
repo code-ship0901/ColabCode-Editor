@@ -14,16 +14,27 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
+// Request logger
+app.use((req, res, next) => {
+    console.log(`[${new Date().toLocaleTimeString()}] ${req.method} ${req.url}`);
+    next();
+});
+
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 
 mongoose.connect("mongodb+srv://vanshika9dhiman_db_user:E4tkOkBuVF2DZANp@first.tzaxesy.mongodb.net/?appName=First")
-    .then(() => console.log("MongoDB Connected"))
-    .catch(err => console.error("MongoDB Connection Error:", err));
+    .then(() => console.log("✅ MongoDB Connected Successfully"))
+    .catch(err => {
+        console.error("❌ MongoDB Connection Error!");
+        console.error("Possible Cause: Your IP address is not whitelisted in MongoDB Atlas.");
+        console.error("Technical Message:", err.message);
+    });
 
 const codesDir = path.join(__dirname, "codes");
 if (!fs.existsSync(codesDir)) fs.mkdirSync(codesDir);
 
+// ── Run C++ Code ──────────────────────────────────────────────
 app.post('/run', (req, res) => {
     const { code } = req.body;
     if (!code) return res.status(400).send({ output: "No code provided" });
@@ -37,70 +48,100 @@ app.post('/run', (req, res) => {
     });
 });
 
-// ── Socket.io Implementation ─────────────────────────── //
-const fileCache = {};
+// ── In-memory caches (cleared on restart) ────────────────────
+const fileCache = {};       // fileId -> latest code string
+const wbCache = {};         // fileId -> strokes JSON string
 
+// ── Socket.io ────────────────────────────────────────────────
 io.on("connection", (socket) => {
-  socket.on("join-room", ({ roomId, userName, color }) => {
-    socket.join(roomId);
-    socket.roomId = roomId;
-    socket.userName = userName;
-    socket.color = color;
-    socket.to(roomId).emit("user-joined", { socketId: socket.id, userName, color });
 
-    // Send existing users to this new user
-    const users = [];
-    const clients = io.sockets.adapter.rooms.get(roomId);
-    if (clients) {
-      for (const clientId of clients) {
-        if (clientId !== socket.id) {
-          const clientSocket = io.sockets.sockets.get(clientId);
-          if (clientSocket) {
-            users.push({ socketId: clientSocket.id, userName: clientSocket.userName, color: clientSocket.color });
-          }
+    // ── Join Room ────────────────────────────────────────────
+    socket.on("join-room", ({ roomId, userName, color }) => {
+        socket.join(roomId);
+        socket.roomId = roomId;
+        socket.userName = userName;
+        socket.color = color;
+
+        // Tell others someone joined
+        socket.to(roomId).emit("user-joined", { socketId: socket.id, userName, color });
+
+        // Send list of existing users to the new joiner
+        const users = [];
+        const clients = io.sockets.adapter.rooms.get(roomId);
+        if (clients) {
+            for (const clientId of clients) {
+                if (clientId !== socket.id) {
+                    const s = io.sockets.sockets.get(clientId);
+                    if (s) users.push({ socketId: s.id, userName: s.userName, color: s.color });
+                }
+            }
         }
-      }
-    }
-    socket.emit("room-users", users);
-  });
-
-  socket.on("open-file", ({ roomId, fileId }) => {
-    // Leave previous file rooms
-    Object.keys(socket.rooms).forEach(r => {
-      if (r.startsWith("file-") && r !== `file-${fileId}`) socket.leave(r);
+        socket.emit("room-users", users);
     });
-    socket.join(`file-${fileId}`);
 
-    if (fileCache[fileId]) {
-      socket.emit("sync-code", { fileId, code: fileCache[fileId] });
-    }
-  });
+    // ── Open File (join per-file room for code + cursor sync) ─
+    socket.on("open-file", ({ roomId, fileId }) => {
+        // Leave all previous file rooms
+        for (const r of socket.rooms) {
+            if (r.startsWith("file-") && r !== `file-${fileId}`) socket.leave(r);
+        }
+        socket.join(`file-${fileId}`);
 
-  socket.on("code-change", ({ roomId, fileId, code }) => {
-    fileCache[fileId] = code;
-    socket.to(`file-${fileId}`).emit("code-update", { fileId, code });
-  });
-
-  socket.on("cursor-move", ({ roomId, fileId, position, selection, userName, color }) => {
-    socket.to(`file-${fileId}`).emit("cursor-update", {
-      socketId: socket.id, position, selection, userName, color, fileId
+        // Send cached code if available
+        if (fileCache[fileId] !== undefined) {
+            socket.emit("sync-code", { fileId, code: fileCache[fileId] });
+        }
+        // Send cached whiteboard if available
+        if (wbCache[fileId] !== undefined) {
+            socket.emit("sync-whiteboard", { fileId, data: wbCache[fileId] });
+        }
     });
-  });
 
-  socket.on("disconnect", () => {
-    if (socket.roomId) {
-      socket.to(socket.roomId).emit("user-left", { socketId: socket.id });
-    }
-  });
+    // ── Code Changes ──────────────────────────────────────────
+    socket.on("code-change", ({ roomId, fileId, code }) => {
+        fileCache[fileId] = code;
+        socket.to(`file-${fileId}`).emit("code-update", { fileId, code });
+    });
+
+    // ── Cursor Move ───────────────────────────────────────────
+    socket.on("cursor-move", ({ roomId, fileId, position, selection, userName, color }) => {
+        socket.to(`file-${fileId}`).emit("cursor-update", {
+            socketId: socket.id, position, selection, userName, color, fileId
+        });
+    });
+
+    // ── Whiteboard: single stroke broadcast ───────────────────
+    socket.on("whiteboard-draw", ({ fileId, stroke }) => {
+        socket.to(`file-${fileId}`).emit("whiteboard-update", { stroke });
+    });
+
+    // ── Whiteboard: clear board broadcast ────────────────────
+    socket.on("whiteboard-clear", ({ fileId }) => {
+        wbCache[fileId] = "[]";
+        socket.to(`file-${fileId}`).emit("whiteboard-clear");
+    });
+
+    // ── Whiteboard: sync full state from client ───────────────
+    socket.on("whiteboard-save", ({ fileId, data }) => {
+        wbCache[fileId] = data;
+    });
+
+    // ── Disconnect ────────────────────────────────────────────
+    socket.on("disconnect", () => {
+        if (socket.roomId) {
+            socket.to(socket.roomId).emit("user-left", { socketId: socket.id });
+        }
+    });
 });
 
+// ── Helper to notify room about file system changes ──────────
 const emitFileSystemChange = (roomId) => {
     io.to(roomId).emit("file-system-changed");
 };
 
-// File Explorer APIs //
+// ── REST API: File System ─────────────────────────────────────
 
-// 1. Get Folder/File Tree
+// Get full folder/file tree for a room
 app.get('/api/tree', async (req, res) => {
     try {
         const { roomId } = req.query;
@@ -112,7 +153,7 @@ app.get('/api/tree', async (req, res) => {
     }
 });
 
-// 2. Create Folder
+// Create folder
 app.post('/api/folders', async (req, res) => {
     try {
         const { name, parentId, roomId } = req.body;
@@ -125,11 +166,17 @@ app.post('/api/folders', async (req, res) => {
     }
 });
 
-// 3. Create File
+// Create file
 app.post('/api/files', async (req, res) => {
     try {
         const { name, folderId, content, roomId } = req.body;
-        const newFile = new File({ name, folderId: folderId || null, content: content || '', roomId });
+        const newFile = new File({
+            name,
+            folderId: folderId || null,
+            content: content || '',
+            whiteboardData: '[]',
+            roomId
+        });
         await newFile.save();
         emitFileSystemChange(roomId);
         res.json(newFile);
@@ -138,7 +185,7 @@ app.post('/api/files', async (req, res) => {
     }
 });
 
-// 4. Rename File or Folder
+// Rename file or folder
 app.put('/api/rename', async (req, res) => {
     try {
         const { id, type, newName } = req.body;
@@ -156,13 +203,13 @@ app.put('/api/rename', async (req, res) => {
     }
 });
 
-// 5. Delete File or Folder
+// Delete file or folder
 app.delete('/api/delete', async (req, res) => {
     try {
         const { id, type } = req.body;
         if (type === 'folder') {
             const f = await Folder.findByIdAndDelete(id);
-            if(f) {
+            if (f) {
                 await File.deleteMany({ folderId: id });
                 await Folder.deleteMany({ parentId: id });
                 emitFileSystemChange(f.roomId);
@@ -170,7 +217,7 @@ app.delete('/api/delete', async (req, res) => {
             res.json({ success: true });
         } else {
             const f = await File.findByIdAndDelete(id);
-            if(f) emitFileSystemChange(f.roomId);
+            if (f) emitFileSystemChange(f.roomId);
             res.json({ success: true });
         }
     } catch (err) {
@@ -178,7 +225,7 @@ app.delete('/api/delete', async (req, res) => {
     }
 });
 
-// 6. Get File Content
+// Get single file content
 app.get('/api/files/:id', async (req, res) => {
     try {
         const file = await File.findById(req.params.id);
@@ -189,11 +236,13 @@ app.get('/api/files/:id', async (req, res) => {
     }
 });
 
-// 7. Update File Content
+// Update file content + whiteboard data
 app.put('/api/files/:id', async (req, res) => {
     try {
-        const { content } = req.body;
-        const file = await File.findByIdAndUpdate(req.params.id, { content }, { new: true });
+        const update = {};
+        if (req.body.content !== undefined) update.content = req.body.content;
+        if (req.body.whiteboardData !== undefined) update.whiteboardData = req.body.whiteboardData;
+        const file = await File.findByIdAndUpdate(req.params.id, update, { new: true });
         res.json(file);
     } catch (err) {
         res.status(500).json({ error: err.message });
