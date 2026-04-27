@@ -1,8 +1,9 @@
-#include <iostream> // Header file for input and output
+
+#include <iostream>
 
 int main() {
-    // std::cout prints the text inside quotation marks
-    std::cout << "Hello World!" << std::endl;
-    
-    return 0; // Signals that the program finished successfully
+    std::cout << "Hello World!";
+    return 0;
 }
+
+ij
