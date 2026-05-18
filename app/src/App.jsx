@@ -14,6 +14,50 @@ const USER_COLORS = [
   "#00D2D3", "#FF9F43", "#10AC84", "#EE5A24"
 ];
 
+const getLanguageFromFileName = (fileName) => {
+  if (!fileName) return "plaintext";
+  const ext = fileName.split('.').pop().toLowerCase();
+  switch (ext) {
+    case "cpp": case "cc": case "cxx": case "hpp": return "cpp";
+    case "c": case "h": return "c";
+    case "py": return "python";
+    case "java": return "java";
+    case "js": return "javascript";
+    case "ts": return "typescript";
+    case "html": return "html";
+    case "css": return "css";
+    case "json": return "json";
+    default: return "plaintext";
+  }
+};
+
+const compileHTML = (htmlCode, files) => {
+  let compiled = htmlCode;
+  
+  // Replace <link rel="stylesheet" href="xxx.css"> with <style>content</style>
+  const cssRegex = /<link\s+[^>]*rel=["']stylesheet["'][^>]*href=["']([^"']+\.css)["'][^>]*>|<link\s+[^>]*href=["']([^"']+\.css)["'][^>]*rel=["']stylesheet["'][^>]*>/gi;
+  compiled = compiled.replace(cssRegex, (match, href1, href2) => {
+    const href = href1 || href2;
+    const cssFile = files.find(f => f.name.toLowerCase() === href.toLowerCase());
+    if (cssFile) {
+      return `<style>\n${cssFile.content}\n</style>`;
+    }
+    return match;
+  });
+
+  // Replace <script src="xxx.js"></script> with <script>content</script>
+  const jsRegex = /<script\s+[^>]*src=["']([^"']+\.js)["'][^>]*>\s*<\/script>/gi;
+  compiled = compiled.replace(jsRegex, (match, src) => {
+    const jsFile = files.find(f => f.name.toLowerCase() === src.toLowerCase());
+    if (jsFile) {
+      return `<script>\n${jsFile.content}\n</script>`;
+    }
+    return match;
+  });
+
+  return compiled;
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 function EditorPage({ userName, roomId }) {
   // ── Core state ───────────────────────────────────────────────
@@ -24,6 +68,9 @@ function EditorPage({ userName, roomId }) {
   const [isConnected, setIsConnected] = useState(false);
   const [openTabs, setOpenTabs] = useState([]);
   const [fileSystemTick, setFileSystemTick] = useState(0);
+  const [workspaceTree, setWorkspaceTree] = useState({ folders: [], files: [] });
+  const [outputType, setOutputType] = useState("text"); // "text" | "preview"
+  const [previewContent, setPreviewContent] = useState("");
 
   // ── Whiteboard state ─────────────────────────────────────────
   const [isScribble, setIsScribble] = useState(false);
@@ -237,11 +284,66 @@ function EditorPage({ userName, roomId }) {
   // ── Run code ─────────────────────────────────────────────────
   const runCode = async () => {
     if (!editorRef.current) return;
+    if (!currentFileId) {
+      setOutputType("text");
+      setOutput("Please select a file from the explorer to run.");
+      return;
+    }
+
+    const activeTab = openTabs.find(t => t.id === currentFileId);
+    const fileName = activeTab ? activeTab.name : "temp.txt";
+    const ext = fileName.split('.').pop().toLowerCase();
+
+    // Client-side HTML/CSS compiler and live preview
+    if (ext === "html" || ext === "css") {
+      let htmlFile = null;
+      if (ext === "html") {
+        htmlFile = { name: fileName, content: editorRef.current.getValue() };
+      } else {
+        // Active file is CSS, search for an HTML file in workspace
+        const htmlFiles = workspaceTree?.files?.filter(f => f.name.endsWith(".html")) || [];
+        if (htmlFiles.length > 0) {
+          htmlFile = htmlFiles[0];
+        }
+      }
+
+      if (htmlFile) {
+        const allFiles = workspaceTree?.files || [];
+        // Map files but override active file content with the editor value (for real-time updates before saving)
+        const updatedFiles = allFiles.map(f => {
+          if (f.name === fileName) {
+            return { ...f, content: editorRef.current.getValue() };
+          }
+          return f;
+        });
+
+        const htmlContent = htmlFile.name === fileName ? editorRef.current.getValue() : htmlFile.content;
+        const compiled = compileHTML(htmlContent, updatedFiles);
+
+        setOutput("");
+        setOutputType("preview");
+        setPreviewContent(compiled);
+        return;
+      } else {
+        if (ext === "css") {
+          setOutputType("text");
+          setOutput("To preview CSS, please create and run an HTML file that links to this CSS file.");
+          return;
+        }
+      }
+    }
+
+    // Backend multi-language runner (C, C++, Java, Python, Node.js JS)
+    setOutputType("text");
     setOutput("Running...");
     try {
       const res = await fetch(`${BACKEND_URL}/run`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: editorRef.current.getValue() }),
+        body: JSON.stringify({ 
+          code: editorRef.current.getValue(),
+          fileName: fileName,
+          roomId: roomId
+        }),
       });
       const data = await res.json();
       setOutput(data.output);
@@ -255,6 +357,10 @@ function EditorPage({ userName, roomId }) {
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
+
+  const activeTab = openTabs.find(t => t.id === currentFileId);
+  const activeFileName = activeTab ? activeTab.name : "";
+  const currentLanguage = getLanguageFromFileName(activeFileName);
 
   // ── Dynamic cursor CSS ───────────────────────────────────────
   const cursorCSS = activeUsers.map(u => {
@@ -362,7 +468,7 @@ function EditorPage({ userName, roomId }) {
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
 
         {/* File Explorer */}
-        <FileExplorer roomId={roomId} onFileSelect={loadFile} refreshTick={fileSystemTick} />
+        <FileExplorer roomId={roomId} onFileSelect={loadFile} refreshTick={fileSystemTick} onTreeUpdate={setWorkspaceTree} />
 
         {/* Editor Column */}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", borderRight: "1px solid #2a2a2a" }}>
@@ -413,7 +519,7 @@ function EditorPage({ userName, roomId }) {
             <Editor
               height="100%"
               theme="vs-dark"
-              language="cpp"
+              language={currentLanguage}
               onMount={handleEditorMount}
               onChange={handleEditorChange}
               options={{
@@ -432,10 +538,29 @@ function EditorPage({ userName, roomId }) {
 
         {/* Output Panel */}
         <div style={{ width: "340px", background: "#111", display: "flex", flexDirection: "column" }}>
-          <div style={{ padding: "10px 16px", borderBottom: "1px solid #1a1a1a", fontSize: "11px", color: "#444", letterSpacing: "1.5px", fontWeight: "600" }}>OUTPUT</div>
-          <pre style={{ flex: 1, color: "#d4d4d4", whiteSpace: "pre-wrap", fontFamily: "Consolas, monospace", fontSize: "14px", padding: "16px", margin: 0, overflowY: "auto" }}>
-            {output || <span style={{ color: "#3a3a3a" }}>Run your code to see output here...</span>}
-          </pre>
+          <div style={{ padding: "10px 16px", borderBottom: "1px solid #1a1a1a", fontSize: "11px", color: "#444", letterSpacing: "1.5px", fontWeight: "600", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span>OUTPUT</span>
+            {outputType === "preview" && (
+              <button 
+                onClick={() => { setOutputType("text"); setOutput(""); }} 
+                style={{ background: "#222", border: "1px solid #444", borderRadius: "4px", color: "#aaa", fontSize: "9px", padding: "2px 6px", cursor: "pointer" }}
+              >
+                Clear Preview
+              </button>
+            )}
+          </div>
+          {outputType === "preview" ? (
+            <iframe
+              title="Live Preview"
+              srcDoc={previewContent}
+              sandbox="allow-scripts"
+              style={{ flex: 1, border: "none", background: "white", width: "100%" }}
+            />
+          ) : (
+            <pre style={{ flex: 1, color: "#d4d4d4", whiteSpace: "pre-wrap", fontFamily: "Consolas, monospace", fontSize: "14px", padding: "16px", margin: 0, overflowY: "auto" }}>
+              {output || <span style={{ color: "#3a3a3a" }}>Run your code to see output here...</span>}
+            </pre>
+          )}
         </div>
       </div>
     </div>

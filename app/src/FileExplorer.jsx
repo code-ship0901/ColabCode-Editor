@@ -3,7 +3,7 @@ import axios from 'axios';
 
 const BACKEND_URL = "http://localhost:5000";
 
-export default function FileExplorer({ roomId, onFileSelect, refreshTick }) {
+export default function FileExplorer({ roomId, onFileSelect, refreshTick, onTreeUpdate }) {
   const [tree, setTree] = useState({ folders: [], files: [] });
   const [expandedFolders, setExpandedFolders] = useState({});
   const [creatingNode, setCreatingNode] = useState(null);
@@ -29,6 +29,12 @@ export default function FileExplorer({ roomId, onFileSelect, refreshTick }) {
   };
 
   useEffect(() => { fetchTree(); }, [roomId, refreshTick]);
+
+  useEffect(() => {
+    if (onTreeUpdate && tree) {
+      onTreeUpdate(tree);
+    }
+  }, [tree, onTreeUpdate]);
 
   useEffect(() => {
     console.log("Current creatingNode state:", creatingNode);
@@ -58,10 +64,17 @@ export default function FileExplorer({ roomId, onFileSelect, refreshTick }) {
       if (type === 'folder') {
         await axios.post(`${BACKEND_URL}/api/folders`, { name, parentId, roomId });
       } else {
+        let defaultContent = '// ' + name + '\n';
+        const ext = name.split('.').pop().toLowerCase();
+        if (ext === 'py') {
+          defaultContent = '# ' + name + '\n';
+        } else if (ext === 'html') {
+          defaultContent = `<!-- ${name} -->\n`;
+        }
         const res = await axios.post(`${BACKEND_URL}/api/files`, {
           name,
           folderId: parentId,
-          content: '// ' + name + '\n',
+          content: defaultContent,
           roomId
         });
         // Select real file once server returns it

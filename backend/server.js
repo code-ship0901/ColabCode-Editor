@@ -33,18 +33,49 @@ mongoose.connect("mongodb://127.0.0.1:27017/colabcode")
 const codesDir = path.join(__dirname, "codes");
 if (!fs.existsSync(codesDir)) fs.mkdirSync(codesDir);
 
-// ── Run C++ Code ──────────────────────────────────────────────
-app.post('/run', (req, res) => {
-    const { code } = req.body;
+// ── Run Code (Multi-Language) ─────────────────────────────────
+app.post('/run', async (req, res) => {
+    const { code, fileName, roomId } = req.body;
     if (!code) return res.status(400).send({ output: "No code provided" });
-    const filePath = path.join(codesDir, "temp.cpp");
-    const outPath = path.join(codesDir, "temp.exe");
-    fs.writeFileSync(filePath, code);
-    const command = `g++ "${filePath}" -o "${outPath}" && "${outPath}"`;
-    exec(command, (error, stdout, stderr) => {
-        if (error) return res.send({ output: stderr || error.message });
-        res.send({ output: stdout });
-    });
+    if (!fileName) return res.status(400).send({ output: "No filename provided" });
+
+    const ext = path.extname(fileName).toLowerCase();
+    const uniqueDirName = roomId ? `room_${roomId.replace(/[^a-zA-Z0-9]/g, "_")}` : "temp_run";
+    const runDir = path.join(codesDir, uniqueDirName);
+    
+    try {
+        await fs.ensureDir(runDir);
+        const filePath = path.join(runDir, fileName);
+        await fs.writeFile(filePath, code);
+
+        let command = "";
+        if (ext === ".py") {
+            command = `python "${filePath}"`;
+        } else if (ext === ".js") {
+            command = `node "${filePath}"`;
+        } else if (ext === ".cpp" || ext === ".cc" || ext === ".cxx") {
+            const outPath = path.join(runDir, `${path.basename(fileName, ext)}.exe`);
+            command = `g++ "${filePath}" -o "${outPath}" && "${outPath}"`;
+        } else if (ext === ".c") {
+            const outPath = path.join(runDir, `${path.basename(fileName, ext)}.exe`);
+            command = `gcc "${filePath}" -o "${outPath}" && "${outPath}"`;
+        } else if (ext === ".java") {
+            const className = path.basename(fileName, ".java");
+            command = `javac "${filePath}" && java -cp "${runDir}" ${className}`;
+        } else {
+            return res.send({ output: `Unsupported language extension: ${ext}` });
+        }
+
+        exec(command, (error, stdout, stderr) => {
+            if (error) {
+                return res.send({ output: stderr || error.message });
+            }
+            res.send({ output: stdout });
+        });
+    } catch (err) {
+        console.error("Run code error:", err);
+        res.status(500).send({ output: `Server Error: ${err.message}` });
+    }
 });
 
 // ── In-memory caches (cleared on restart) ────────────────────
