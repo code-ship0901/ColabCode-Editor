@@ -23,11 +23,10 @@ app.use((req, res, next) => {
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 
-mongoose.connect("mongodb+srv://vanshika9dhiman_db_user:E4tkOkBuVF2DZANp@first.tzaxesy.mongodb.net/?appName=First")
-    .then(() => console.log("✅ MongoDB Connected Successfully"))
+mongoose.connect("mongodb://127.0.0.1:27017/colabcode")
+    .then(() => console.log("✅ MongoDB Connected Successfully (Local)"))
     .catch(err => {
         console.error("❌ MongoDB Connection Error!");
-        console.error("Possible Cause: Your IP address is not whitelisted in MongoDB Atlas.");
         console.error("Technical Message:", err.message);
     });
 
