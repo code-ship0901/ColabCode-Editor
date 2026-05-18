@@ -81,6 +81,7 @@ app.post('/run', async (req, res) => {
 // ── In-memory caches (cleared on restart) ────────────────────
 const fileCache = {};       // fileId -> latest code string
 const wbCache = {};         // fileId -> strokes JSON string
+const chatCache = {};       // roomId -> array of messages
 
 // ── Socket.io ────────────────────────────────────────────────
 io.on("connection", (socket) => {
@@ -106,6 +107,11 @@ io.on("connection", (socket) => {
                 }
             }
         }
+        // Send recent chat history if available
+        if (chatCache[roomId]) {
+            socket.emit("chat-history", chatCache[roomId]);
+        }
+
         socket.emit("room-users", users);
     });
 
@@ -154,6 +160,28 @@ io.on("connection", (socket) => {
     // ── Whiteboard: sync full state from client ───────────────
     socket.on("whiteboard-save", ({ fileId, data }) => {
         wbCache[fileId] = data;
+    });
+
+    // ── Send Message ──────────────────────────────────────────
+    socket.on("send-message", ({ text }) => {
+        const roomId = socket.roomId;
+        if (!roomId) return;
+
+        const msg = {
+            id: Date.now() + "-" + Math.random().toString(36).substr(2, 9),
+            sender: socket.userName || "Anonymous",
+            color: socket.color || "#ccc",
+            text,
+            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        };
+
+        if (!chatCache[roomId]) chatCache[roomId] = [];
+        chatCache[roomId].push(msg);
+
+        // Keep only last 100 messages
+        if (chatCache[roomId].length > 100) chatCache[roomId].shift();
+
+        io.to(roomId).emit("chat-message", msg);
     });
 
     // ── Disconnect ────────────────────────────────────────────

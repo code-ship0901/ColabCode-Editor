@@ -71,6 +71,8 @@ function EditorPage({ userName, roomId }) {
   const [workspaceTree, setWorkspaceTree] = useState({ folders: [], files: [] });
   const [outputType, setOutputType] = useState("text"); // "text" | "preview"
   const [previewContent, setPreviewContent] = useState("");
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatInput, setChatInput] = useState("");
 
   // ── Whiteboard state ─────────────────────────────────────────
   const [isScribble, setIsScribble] = useState(false);
@@ -88,6 +90,7 @@ function EditorPage({ userName, roomId }) {
   const remoteCursorsRef = useRef({});
   const saveTimerRef = useRef(null);
   const wbSaveTimerRef = useRef(null);
+  const chatEndRef = useRef(null);
 
   // Stable color per username
   const [userColor] = useState(() => {
@@ -148,6 +151,19 @@ function EditorPage({ userName, roomId }) {
     });
 
     socket.on("file-system-changed", () => setFileSystemTick(t => t + 1));
+
+    socket.on("chat-history", (history) => {
+      setChatMessages(history);
+    });
+
+    socket.on("chat-message", (msg) => {
+      setChatMessages(prev => [...prev, msg]);
+      setTimeout(() => {
+        if (chatEndRef.current) {
+          chatEndRef.current.scrollIntoView({ behavior: "smooth" });
+        }
+      }, 50);
+    });
 
     return () => socket.disconnect();
   }, [roomId, userName, userColor]);
@@ -358,6 +374,13 @@ function EditorPage({ userName, roomId }) {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleSendChat = (e) => {
+    e.preventDefault();
+    if (!chatInput.trim() || !socketRef.current) return;
+    socketRef.current.emit("send-message", { text: chatInput.trim() });
+    setChatInput("");
+  };
+
   const activeTab = openTabs.find(t => t.id === currentFileId);
   const activeFileName = activeTab ? activeTab.name : "";
   const currentLanguage = getLanguageFromFileName(activeFileName);
@@ -536,31 +559,75 @@ function EditorPage({ userName, roomId }) {
           </div>
         </div>
 
-        {/* Output Panel */}
-        <div style={{ width: "340px", background: "#111", display: "flex", flexDirection: "column" }}>
-          <div style={{ padding: "10px 16px", borderBottom: "1px solid #1a1a1a", fontSize: "11px", color: "#444", letterSpacing: "1.5px", fontWeight: "600", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span>OUTPUT</span>
-            {outputType === "preview" && (
-              <button 
-                onClick={() => { setOutputType("text"); setOutput(""); }} 
-                style={{ background: "#222", border: "1px solid #444", borderRadius: "4px", color: "#aaa", fontSize: "9px", padding: "2px 6px", cursor: "pointer" }}
-              >
-                Clear Preview
-              </button>
+        {/* Output & Chat Sidebar */}
+        <div style={{ width: "340px", background: "#111", display: "flex", flexDirection: "column", borderLeft: "1px solid #2a2a2a", height: "100%" }}>
+          
+          {/* Top: Output Panel */}
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", borderBottom: "1px solid #2a2a2a", overflow: "hidden" }}>
+            <div style={{ padding: "10px 16px", borderBottom: "1px solid #1a1a1a", fontSize: "11px", color: "#444", letterSpacing: "1.5px", fontWeight: "600", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span>OUTPUT</span>
+              {outputType === "preview" && (
+                <button 
+                  onClick={() => { setOutputType("text"); setOutput(""); }} 
+                  style={{ background: "#222", border: "1px solid #444", borderRadius: "4px", color: "#aaa", fontSize: "9px", padding: "2px 6px", cursor: "pointer" }}
+                >
+                  Clear Preview
+                </button>
+              )}
+            </div>
+            {outputType === "preview" ? (
+              <iframe
+                title="Live Preview"
+                srcDoc={previewContent}
+                sandbox="allow-scripts"
+                style={{ flex: 1, border: "none", background: "white", width: "100%" }}
+              />
+            ) : (
+              <pre style={{ flex: 1, color: "#d4d4d4", whiteSpace: "pre-wrap", fontFamily: "Consolas, monospace", fontSize: "14px", padding: "16px", margin: 0, overflowY: "auto" }}>
+                {output || <span style={{ color: "#3a3a3a" }}>Run your code to see output here...</span>}
+              </pre>
             )}
           </div>
-          {outputType === "preview" ? (
-            <iframe
-              title="Live Preview"
-              srcDoc={previewContent}
-              sandbox="allow-scripts"
-              style={{ flex: 1, border: "none", background: "white", width: "100%" }}
-            />
-          ) : (
-            <pre style={{ flex: 1, color: "#d4d4d4", whiteSpace: "pre-wrap", fontFamily: "Consolas, monospace", fontSize: "14px", padding: "16px", margin: 0, overflowY: "auto" }}>
-              {output || <span style={{ color: "#3a3a3a" }}>Run your code to see output here...</span>}
-            </pre>
-          )}
+
+          {/* Bottom: Chat Panel */}
+          <div style={{ height: "360px", display: "flex", flexDirection: "column", background: "#161616", overflow: "hidden" }}>
+            <div style={{ padding: "10px 16px", borderBottom: "1px solid #2a2a2a", fontSize: "11px", color: "#888", letterSpacing: "1.5px", fontWeight: "600", background: "#111" }}>
+              💬 ROOM CHAT
+            </div>
+            <div style={{ flex: 1, overflowY: "auto", padding: "14px", display: "flex", flexDirection: "column", gap: "10px" }}>
+              {chatMessages.length === 0 ? (
+                <div style={{ color: "#444", fontSize: "12px", textAlign: "center", marginTop: "20px", fontStyle: "italic" }}>
+                  No messages yet. Send a message to start chatting!
+                </div>
+              ) : (
+                chatMessages.map(msg => (
+                  <div key={msg.id} style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                    <div style={{ display: "flex", alignItems: "baseline", gap: "6px" }}>
+                      <span style={{ fontSize: "12.5px", fontWeight: "700", color: msg.color }}>{msg.sender}</span>
+                      <span style={{ fontSize: "9px", color: "#555" }}>{msg.time}</span>
+                    </div>
+                    <div style={{ fontSize: "13px", color: "#cccccc", wordBreak: "break-word", background: "#202021", padding: "6px 10px", borderRadius: "6px", border: "1px solid #2b2b2c", width: "fit-content", maxWidth: "90%" }}>
+                      {msg.text}
+                    </div>
+                  </div>
+                ))
+              )}
+              <div ref={chatEndRef} />
+            </div>
+            <form onSubmit={handleSendChat} style={{ display: "flex", padding: "10px", gap: "8px", background: "#111", borderTop: "1px solid #222" }}>
+              <input
+                type="text"
+                placeholder="Type a message..."
+                value={chatInput}
+                onChange={e => setChatInput(e.target.value)}
+                style={{ flex: 1, background: "#252526", border: "1px solid #333", borderRadius: "6px", color: "white", padding: "8px 12px", fontSize: "13px", outline: "none" }}
+              />
+              <button type="submit" style={{ background: "#0693e3", border: "none", borderRadius: "6px", color: "white", padding: "0 14px", cursor: "pointer", fontWeight: "600", fontSize: "12px" }}>
+                Send
+              </button>
+            </form>
+          </div>
+
         </div>
       </div>
     </div>
